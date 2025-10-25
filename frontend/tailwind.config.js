@@ -1,17 +1,18 @@
 module.exports = {
-  content: ["./src/**/*.{js,jsx}"],
+  content: [
+    "./src/**/*.{js,jsx,ts,tsx}",
+    "./public/index.html"
+  ],
   theme: {
     extend: {
-      colors: {
-        'mgnrega-green': '#10b981',
-        'mgnrega-yellow': '#f59e0b',
-        'mgnrega-red': '#ef4444',
-        'mgnrega-blue': '#3b82f6'
-      },
       fontFamily: {
-        'sans': ['Inter', 'system-ui', 'sans-serif']
+        sans: ['Inter', 'sans-serif']
+      },
+      animation: {
+        'bounce': 'bounce 1s infinite',
+        'pulse': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
       }
-    }
+    },
   },
-  plugins: []
+  plugins: [],
 }
