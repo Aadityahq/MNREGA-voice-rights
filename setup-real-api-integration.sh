@@ -1,3 +1,19 @@
+#!/bin/bash
+
+echo "🇮🇳 =================================================="
+echo "   Real MGNREGA API Integration Setup"
+echo "   Live Data + Smart Caching System"
+echo "   =================================================="
+echo ""
+
+cd ~/Desktop/Codes/MNREGA-voice-rights/backend
+
+echo "📡 Step 1: Updating fetchMGNREGA.js with real API integration..."
+
+# ============================================
+# UTILS/FETCHMGNREGA.JS - REAL API WITH SMART CACHING
+# ============================================
+cat > utils/fetchMGNREGA.js << 'EOF'
 const axios = require('axios');
 const cheerio = require('cheerio');
 const District = require('../models/District');
@@ -585,3 +601,474 @@ module.exports = {
   refreshDistrictData,
   checkAPIAvailability
 };
+EOF
+
+echo "✅ fetchMGNREGA.js updated with real API integration"
+echo ""
+
+echo "🎮 Step 2: Updating controller to show data source..."
+
+# ============================================
+# UPDATE CONTROLLER TO SHOW DATA SOURCE
+# ============================================
+cat > controllers/districtController.js << 'EOF'
+const District = require('../models/District');
+const { getRedisClient } = require('../config/redis');
+const { getDataSource, refreshDistrictData, checkAPIAvailability } = require('../utils/fetchMGNREGA');
+
+const getCachedData = async (key, fetchFunction, ttl = 14400) => {
+  try {
+    const redisClient = getRedisClient();
+    
+    if (!redisClient) {
+      return await fetchFunction();
+    }
+
+    const cached = await redisClient.get(key);
+    if (cached) {
+      console.log(`✅ Cache hit: ${key}`);
+      return JSON.parse(cached);
+    }
+
+    console.log(`⚠️ Cache miss: ${key}`);
+    const data = await fetchFunction();
+
+    if (data) {
+      await redisClient.setEx(key, ttl, JSON.stringify(data));
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Cache error:', error);
+    return await fetchFunction();
+  }
+};
+
+exports.getStates = async (req, res) => {
+  try {
+    const states = await getCachedData('all_states', async () => {
+      const aggregation = await District.aggregate([
+        {
+          $group: {
+            _id: '$state',
+            districtCount: { $sum: 1 },
+            totalJobs: { $sum: { $arrayElemAt: ['$monthlyMetrics.jobsGenerated', -1] } },
+            totalWages: { $sum: { $arrayElemAt: ['$monthlyMetrics.wagesPaid', -1] } },
+            lastUpdated: { $max: '$lastUpdated' },
+            dataSource: { $first: '$dataSource' }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            name: '$_id',
+            districtCount: 1,
+            totalJobs: 1,
+            totalWages: 1,
+            lastUpdated: 1,
+            dataSource: 1
+          }
+        },
+        { $sort: { name: 1 } }
+      ]);
+
+      return aggregation;
+    }, 7200);
+
+    res.json({
+      success: true,
+      count: states.length,
+      data: states,
+      apiStatus: await checkAPIAvailability() ? 'ONLINE' : 'OFFLINE'
+    });
+
+  } catch (error) {
+    console.error('Error fetching states:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch states',
+      message: error.message
+    });
+  }
+};
+
+exports.getDistrictsByState = async (req, res) => {
+  try {
+    const { stateName } = req.params;
+    const { sortBy = 'name', order = 'asc', search } = req.query;
+
+    if (!stateName) {
+      return res.status(400).json({
+        success: false,
+        error: 'State name is required'
+      });
+    }
+
+    const cacheKey = `districts:${stateName}:${sortBy}:${order}:${search || 'all'}`;
+    
+    const districts = await getCachedData(cacheKey, async () => {
+      let query = { state: stateName };
+
+      if (search) {
+        query.name = { $regex: search, $options: 'i' };
+      }
+
+      const sortOptions = {};
+      sortOptions[sortBy] = order === 'asc' ? 1 : -1;
+
+      return await District.find(query)
+        .select('districtId name state monthlyMetrics lastUpdated dataSource')
+        .sort(sortOptions)
+        .lean();
+    }, 3600);
+
+    res.json({
+      success: true,
+      state: stateName,
+      count: districts.length,
+      data: districts,
+      apiStatus: await checkAPIAvailability() ? 'ONLINE' : 'OFFLINE'
+    });
+
+  } catch (error) {
+    console.error('Error fetching districts:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch districts',
+      message: error.message
+    });
+  }
+};
+
+exports.getAllDistricts = async (req, res) => {
+  try {
+    const {
+      state,
+      search,
+      sortBy = 'name',
+      order = 'asc',
+      page = 1,
+      limit = 50
+    } = req.query;
+
+    const query = {};
+
+    if (state) query.state = state;
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { state: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const sortOptions = {};
+    sortOptions[sortBy] = order === 'asc' ? 1 : -1;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [districts, total] = await Promise.all([
+      District.find(query)
+        .sort(sortOptions)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      District.countDocuments(query)
+    ]);
+
+    res.json({
+      success: true,
+      data: districts,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: total,
+        pages: Math.ceil(total / parseInt(limit))
+      },
+      apiStatus: await checkAPIAvailability() ? 'ONLINE' : 'OFFLINE'
+    });
+
+  } catch (error) {
+    console.error('Error fetching all districts:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch districts',
+      message: error.message
+    });
+  }
+};
+
+exports.getDistrictById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { refresh } = req.query;
+
+    // If refresh requested, try to get fresh data
+    if (refresh === 'true') {
+      const refreshResult = await refreshDistrictData(id);
+      console.log(`Refresh result for ${id}:`, refreshResult);
+    }
+
+    const cacheKey = `district:${id}`;
+    
+    const district = await getCachedData(cacheKey, async () => {
+      return await District.findOne({ 
+        $or: [
+          { districtId: id },
+          { _id: id }
+        ]
+      }).lean();
+    }, 3600);
+
+    if (!district) {
+      return res.status(404).json({
+        success: false,
+        error: 'District not found'
+      });
+    }
+
+    // Add metadata
+    district.metadata = {
+      dataSource: district.dataSource,
+      lastUpdated: district.lastUpdated,
+      apiStatus: await checkAPIAvailability() ? 'ONLINE' : 'OFFLINE',
+      cacheAge: Math.floor((new Date() - new Date(district.lastUpdated)) / 1000 / 60) // minutes
+    };
+
+    res.json({
+      success: true,
+      data: district
+    });
+
+  } catch (error) {
+    console.error('Error fetching district:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch district',
+      message: error.message
+    });
+  }
+};
+
+exports.getStatistics = async (req, res) => {
+  try {
+    const stats = await getCachedData('statistics', async () => {
+      const [
+        totalDistricts,
+        totalStates,
+        aggregateStats,
+        dataSources
+      ] = await Promise.all([
+        District.countDocuments(),
+        District.distinct('state').then(states => states.length),
+        District.aggregate([
+          {
+            $project: {
+              latestMetrics: { $arrayElemAt: ['$monthlyMetrics', -1] }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalJobs: { $sum: '$latestMetrics.jobsGenerated' },
+              totalWages: { $sum: '$latestMetrics.wagesPaid' },
+              totalWorkdays: { $sum: '$latestMetrics.workdays' },
+              totalEmployment: { $sum: '$latestMetrics.employmentProvided' }
+            }
+          }
+        ]),
+        District.aggregate([
+          {
+            $group: {
+              _id: '$dataSource',
+              count: { $sum: 1 }
+            }
+          }
+        ])
+      ]);
+
+      return {
+        totalDistricts,
+        totalStates,
+        ...(aggregateStats[0] || {}),
+        dataSources: dataSources.reduce((acc, item) => {
+          acc[item._id] = item.count;
+          return acc;
+        }, {})
+      };
+    }, 7200);
+
+    stats.apiStatus = await checkAPIAvailability() ? 'ONLINE' : 'OFFLINE';
+
+    res.json({
+      success: true,
+      data: stats
+    });
+
+  } catch (error) {
+    console.error('Error fetching statistics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch statistics',
+      message: error.message
+    });
+  }
+};
+
+exports.getAudioSummary = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const district = await District.findOne({ 
+      $or: [{ districtId: id }, { _id: id }]
+    }).lean();
+
+    if (!district) {
+      return res.status(404).json({
+        success: false,
+        error: 'District not found'
+      });
+    }
+
+    const latest = district.monthlyMetrics[district.monthlyMetrics.length - 1];
+
+    if (!latest) {
+      return res.json({
+        success: true,
+        summary: `No data available for ${district.name} district in ${district.state} state.`
+      });
+    }
+
+    const dataSourceText = district.dataSource === 'API' ? 'from official MGNREGA API' : 
+                          district.dataSource === 'MOCK' ? 'simulated for demonstration' : 
+                          'from cached database';
+
+    const summary = `
+      MGNREGA Report for ${district.name} district in ${district.state} state.
+      
+      This data is ${dataSourceText}.
+      
+      In ${latest.month} ${latest.year}, ${latest.jobsGenerated.toLocaleString()} jobs were generated.
+      
+      Total wages paid amount to ${(latest.wagesPaid / 10000000).toFixed(2)} crore rupees.
+      
+      ${latest.workdays.toLocaleString()} workdays were provided.
+      
+      Employment was given to ${latest.employmentProvided.toLocaleString()} people.
+      
+      This data was last updated on ${new Date(district.lastUpdated).toLocaleDateString()}.
+    `;
+
+    res.json({
+      success: true,
+      summary: summary.trim(),
+      dataSource: district.dataSource
+    });
+
+  } catch (error) {
+    console.error('Error generating audio summary:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate audio summary'
+    });
+  }
+};
+
+exports.fetchData = async (req, res) => {
+  try {
+    const { fetchAllDistrictsData } = require('../utils/fetchMGNREGA');
+    
+    console.log('🔄 Manual data fetch triggered...');
+    
+    // Run in background
+    fetchAllDistrictsData().then((count) => {
+      console.log(`✅ Background data fetch completed: ${count} districts`);
+    }).catch(err => {
+      console.error('❌ Background fetch error:', err);
+    });
+    
+    res.json({
+      success: true,
+      message: 'Data fetch started in background. This may take several minutes. Check server logs for progress.'
+    });
+
+  } catch (error) {
+    console.error('Error triggering fetch:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to trigger data fetch'
+    });
+  }
+};
+
+exports.getAPIStatus = async (req, res) => {
+  try {
+    const isOnline = await checkAPIAvailability();
+    
+    const stats = await District.aggregate([
+      {
+        $group: {
+          _id: '$dataSource',
+          count: { $sum: 1 },
+          lastUpdated: { $max: '$lastUpdated' }
+        }
+      }
+    ]);
+
+    res.json({
+      success: true,
+      apiStatus: isOnline ? 'ONLINE' : 'OFFLINE',
+      dataSources: stats,
+      timestamp: new Date()
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check API status'
+    });
+  }
+};
+EOF
+
+echo "✅ Controller updated"
+echo ""
+
+echo "🛣️ Step 3: Adding API status route..."
+
+# Update routes to include API status
+cat >> routes/district.js << 'EOF'
+
+// Get API status
+router.get('/api-status', districtController.getAPIStatus);
+EOF
+
+echo "✅ Route added"
+echo ""
+
+echo "📝 Step 4: Updating README with API information..."
+
+cat > README.md << 'EOF'
+# 🇮�� MGNREGA Backend - Real API Integration
+
+## Data Sources (Priority Order)
+
+1. **🌐 data.gov.in API** (Primary) - Real-time government data
+2. **📡 NREGA Website** (Secondary) - Direct scraping from official portal
+3. **💾 Database Cache** (Fallback) - Previously fetched data
+4. **🎲 Mock Data** (Last Resort) - Simulated realistic data
+
+## Smart Caching System
+
+- **Live API**: When APIs are available, fetches fresh data
+- **Cache**: Stores all fetched data in MongoDB for 4 hours
+- **Offline Mode**: Automatically uses cached data when APIs are down
+- **Auto-Refresh**: Cron job updates data every 4 hours
+
+## API Key Setup
+
+Get your free API key from data.gov.in:
+
+1. Visit https://data.gov.in/user/register
+2. Sign up and verify email
+3. Login and go to "My Account" → "API Keys"
+4. Generate key and add to `.env`:

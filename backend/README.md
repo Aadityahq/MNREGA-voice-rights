@@ -1,39 +1,24 @@
-# 🇮🇳 MGNREGA Backend - Government of India
+# 🇮�� MGNREGA Backend - Real API Integration
 
-Backend API for MGNREGA Data Portal with real API integration.
+## Data Sources (Priority Order)
 
-## Features
+1. **🌐 data.gov.in API** (Primary) - Real-time government data
+2. **📡 NREGA Website** (Secondary) - Direct scraping from official portal
+3. **💾 Database Cache** (Fallback) - Previously fetched data
+4. **🎲 Mock Data** (Last Resort) - Simulated realistic data
 
-- ✅ Real MGNREGA API integration
-- ✅ MongoDB data storage
-- ✅ Redis caching
-- ✅ Automated data fetching
-- ✅ RESTful API endpoints
-- ✅ Government-grade security
+## Smart Caching System
 
-## Quick Start
+- **Live API**: When APIs are available, fetches fresh data
+- **Cache**: Stores all fetched data in MongoDB for 4 hours
+- **Offline Mode**: Automatically uses cached data when APIs are down
+- **Auto-Refresh**: Cron job updates data every 4 hours
 
-### Prerequisites
+## API Key Setup
 
-- Node.js v16+
-- MongoDB v5+
-- Redis v6+
-- MGNREGA API Key (optional)
+Get your free API key from data.gov.in:
 
-### Installation
-
-```bash
-# Install dependencies
-npm install
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your settings
-
-# Seed database
-npm run seed
-
-# Start server
-npm run dev
-
-
+1. Visit https://data.gov.in/user/register
+2. Sign up and verify email
+3. Login and go to "My Account" → "API Keys"
+4. Generate key and add to `.env`:
