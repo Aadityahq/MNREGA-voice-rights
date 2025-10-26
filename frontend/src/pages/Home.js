@@ -4,6 +4,7 @@ import api from '../services/api';
 import GovtHeader from '../components/GovtHeader';
 import GovtFooter from '../components/GovtFooter';
 import Loading from '../components/Loading';
+import { detectUserLocation } from '../utils/geolocation';
 
 const Home = () => {
   const navigate = useNavigate();
@@ -15,6 +16,8 @@ const Home = () => {
   const [stats, setStats] = useState(null);
   const [detectingLocation, setDetectingLocation] = useState(false);
   const [error, setError] = useState(null);
+  const [locationInfo, setLocationInfo] = useState(null);
+  const [locationError, setLocationError] = useState(null);
 
   useEffect(() => {
     fetchStates();
@@ -79,25 +82,63 @@ const Home = () => {
     }
   };
 
-  const detectLocation = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser');
-      return;
-    }
-
+  const detectLocation = async () => {
     setDetectingLocation(true);
+    setLocationError(null);
+    setLocationInfo(null);
 
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        alert(`Location detected: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}\n\nPlease select your state manually for now.`);
-        setDetectingLocation(false);
-      },
-      (error) => {
-        alert('Could not detect location. Please select manually.');
-        setDetectingLocation(false);
+    try {
+      const result = await detectUserLocation();
+
+      if (result.success) {
+        setLocationInfo(result);
+
+        // Auto-select state if detected
+        if (result.state && states.length > 0) {
+          const matchingState = states.find(
+            s => s.name.toLowerCase() === result.state.toLowerCase()
+          );
+
+          if (matchingState) {
+            setSelectedState(matchingState.name);
+            
+            // Fetch districts for the detected state
+            const districtResponse = await api.getDistrictsByState(matchingState.name);
+            if (districtResponse.success && districtResponse.data.length > 0) {
+              setDistricts(districtResponse.data);
+
+              // Try to match district if available
+              if (result.district) {
+                const matchingDistrict = districtResponse.data.find(
+                  d => d.name.toLowerCase().includes(result.district.toLowerCase()) ||
+                       result.district.toLowerCase().includes(d.name.toLowerCase())
+                );
+
+                if (matchingDistrict) {
+                  setSelectedDistrict(matchingDistrict.districtId);
+                  // Auto-navigate to dashboard
+                  setTimeout(() => {
+                    navigate(`/dashboard/${matchingDistrict.districtId}`);
+                  }, 1500);
+                } else {
+                  setLocationError(`Detected district "${result.district}" not found. Please select from the list.`);
+                }
+              }
+            }
+          } else {
+            setLocationError(`State "${result.state}" not found in database. Please select manually.`);
+          }
+        } else if (result.error) {
+          setLocationError(result.error);
+        }
+      } else {
+        setLocationError(result.error);
       }
-    );
+    } catch (err) {
+      setLocationError(err.message || 'An error occurred while detecting location');
+    } finally {
+      setDetectingLocation(false);
+    }
   };
 
   return (
@@ -173,6 +214,32 @@ const Home = () => {
                   </>
                 )}
               </button>
+
+              {/* Location Detection Results */}
+              {locationInfo && locationInfo.success && (
+                <div className="mt-6 bg-green-50 border-2 border-green-200 rounded-lg p-4 text-left">
+                  <p className="font-bold text-green-800 mb-2">✅ Location Detected</p>
+                  {locationInfo.state && (
+                    <p className="text-sm text-gray-700">📍 State: <strong>{locationInfo.state}</strong></p>
+                  )}
+                  {locationInfo.district && (
+                    <p className="text-sm text-gray-700">🏛️ District: <strong>{locationInfo.district}</strong></p>
+                  )}
+                  {locationInfo.city && (
+                    <p className="text-sm text-gray-700">🏙️ City: <strong>{locationInfo.city}</strong></p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-2">
+                    Coordinates: {locationInfo.coordinates.latitude.toFixed(4)}, {locationInfo.coordinates.longitude.toFixed(4)}
+                  </p>
+                </div>
+              )}
+
+              {locationError && (
+                <div className="mt-6 bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4 text-left">
+                  <p className="font-bold text-yellow-800 mb-2">⚠️ {locationError}</p>
+                  <p className="text-sm text-gray-600">Please select your state and district manually below.</p>
+                </div>
+              )}
             </div>
 
             <div className="govt-card-green text-center">

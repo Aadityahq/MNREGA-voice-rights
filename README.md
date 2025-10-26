@@ -32,7 +32,6 @@ A comprehensive MERN stack web application that makes MGNREGA (Mahatma Gandhi Na
 
 ### External APIs
 - MGNREGA Official API from data.gov.in
-
 ## 📁 Project Structure
 
 ```
