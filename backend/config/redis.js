@@ -1,44 +1,46 @@
 const redis = require('redis');
 
-// Create Redis client
-const redisClient = redis.createClient({
-  socket: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: process.env.REDIS_PORT || 6379
-  }
-});
+let redisClient = null;
 
-// Error handling
-redisClient.on('error', (err) => {
-  console.error('Redis Client Error:', err);
-});
-
-// Connect to Redis
-redisClient.connect().then(() => {
-  console.log('Redis Connected');
-}).catch((err) => {
-  console.error('Redis Connection Error:', err);
-});
-
-// Helper functions for caching
-const setCache = async (key, data, ttl = 3600) => {
+const connectRedis = async () => {
   try {
-    await redisClient.setEx(key, ttl, JSON.stringify(data));
-    return true;
-  } catch (error) {
-    console.error('Redis Set Error:', error);
-    return false;
-  }
-};
+    redisClient = redis.createClient({
+      socket: {
+        host: process.env.REDIS_HOST || '127.0.0.1',
+        port: process.env.REDIS_PORT || 6379,
+      },
+      password: process.env.REDIS_PASSWORD || undefined,
+    });
 
-const getCache = async (key) => {
-  try {
-    const data = await redisClient.get(key);
-    return data ? JSON.parse(data) : null;
+    redisClient.on('error', (err) => {
+      console.error('❌ Redis Client Error:', err);
+    });
+
+    redisClient.on('connect', () => {
+      console.log('🔄 Redis Client Connecting...');
+    });
+
+    redisClient.on('ready', () => {
+      console.log('✅ Redis Connected Successfully');
+    });
+
+    await redisClient.connect();
+    await redisClient.ping();
+
+    return redisClient;
   } catch (error) {
-    console.error('Redis Get Error:', error);
+    console.error('❌ Redis Connection Error:', error.message);
+    console.warn('⚠️  Continuing without Redis cache...');
+    console.warn('💡 Start Redis: brew services start redis');
     return null;
   }
 };
 
-module.exports = { redisClient, setCache, getCache };
+process.on('SIGINT', async () => {
+  if (redisClient) {
+    await redisClient.quit();
+    console.log('🔌 Redis connection closed');
+  }
+});
+
+module.exports = { connectRedis, getRedisClient: () => redisClient };

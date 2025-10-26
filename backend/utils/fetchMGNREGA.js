@@ -1,137 +1,238 @@
 const axios = require('axios');
 const District = require('../models/District');
 
-// Mock data for development/testing
-const mockDistrictData = {
-  districtId: 101,
-  state: 'Uttar Pradesh',
-  name: 'Allahabad',
-  monthlyMetrics: [
-    { month: '2024-05', jobsGenerated: 12000, wagesPaid: 18000000, workdays: 36000, employmentProvided: 8000 },
-    { month: '2024-06', jobsGenerated: 14000, wagesPaid: 21000000, workdays: 42000, employmentProvided: 9000 },
-    { month: '2024-07', jobsGenerated: 15000, wagesPaid: 25000000, workdays: 45000, employmentProvided: 10000 },
-    { month: '2024-08', jobsGenerated: 16000, wagesPaid: 28000000, workdays: 48000, employmentProvided: 11000 },
-    { month: '2024-09', jobsGenerated: 17000, wagesPaid: 30000000, workdays: 51000, employmentProvided: 12000 },
-    { month: '2024-10', jobsGenerated: 18000, wagesPaid: 32000000, workdays: 54000, employmentProvided: 13000 }
-  ],
-  lastUpdated: new Date()
+const STATE_CODES = {
+  '01': 'Andhra Pradesh', '02': 'Arunachal Pradesh', '03': 'Assam',
+  '04': 'Bihar', '05': 'Chhattisgarh', '06': 'Goa',
+  '07': 'Gujarat', '08': 'Haryana', '09': 'Himachal Pradesh',
+  '10': 'Jammu and Kashmir', '11': 'Jharkhand', '12': 'Karnataka',
+  '13': 'Kerala', '14': 'Madhya Pradesh', '15': 'Maharashtra',
+  '16': 'Manipur', '17': 'Meghalaya', '18': 'Mizoram',
+  '19': 'Nagaland', '20': 'Odisha', '21': 'Punjab',
+  '22': 'Rajasthan', '23': 'Sikkim', '24': 'Tamil Nadu',
+  '25': 'Tripura', '26': 'Uttar Pradesh', '27': 'Uttarakhand',
+  '28': 'West Bengal', '29': 'Andaman and Nicobar', '30': 'Chandigarh',
+  '31': 'Dadra and Nagar Haveli', '32': 'Daman and Diu',
+  '33': 'Lakshadweep', '34': 'Puducherry',
+  '35': 'Ladakh', '36': 'Telangana'
 };
 
-const fetchMGNREGAData = async (resourceId) => {
-  try {
-    const apiUrl = process.env.MGNREGA_API_URL;
-    const apiKey = process.env.MGNREGA_API_KEY;
+const MOCK_DISTRICTS = [
+  // Uttar Pradesh
+  { stateCode: '26', districtCode: '001', name: 'Prayagraj', state: 'Uttar Pradesh' },
+  { stateCode: '26', districtCode: '002', name: 'Varanasi', state: 'Uttar Pradesh' },
+  { stateCode: '26', districtCode: '003', name: 'Lucknow', state: 'Uttar Pradesh' },
+  { stateCode: '26', districtCode: '004', name: 'Kanpur Nagar', state: 'Uttar Pradesh' },
+  { stateCode: '26', districtCode: '005', name: 'Agra', state: 'Uttar Pradesh' },
+  { stateCode: '26', districtCode: '006', name: 'Meerut', state: 'Uttar Pradesh' },
+  { stateCode: '26', districtCode: '007', name: 'Gorakhpur', state: 'Uttar Pradesh' },
+  { stateCode: '26', districtCode: '008', name: 'Bareilly', state: 'Uttar Pradesh' },
+  
+  // Bihar
+  { stateCode: '04', districtCode: '001', name: 'Patna', state: 'Bihar' },
+  { stateCode: '04', districtCode: '002', name: 'Gaya', state: 'Bihar' },
+  { stateCode: '04', districtCode: '003', name: 'Bhagalpur', state: 'Bihar' },
+  { stateCode: '04', districtCode: '004', name: 'Muzaffarpur', state: 'Bihar' },
+  { stateCode: '04', districtCode: '005', name: 'Darbhanga', state: 'Bihar' },
+  { stateCode: '04', districtCode: '006', name: 'Arrah', state: 'Bihar' },
+  
+  // Maharashtra
+  { stateCode: '15', districtCode: '001', name: 'Mumbai', state: 'Maharashtra' },
+  { stateCode: '15', districtCode: '002', name: 'Pune', state: 'Maharashtra' },
+  { stateCode: '15', districtCode: '003', name: 'Nagpur', state: 'Maharashtra' },
+  { stateCode: '15', districtCode: '004', name: 'Nashik', state: 'Maharashtra' },
+  { stateCode: '15', districtCode: '005', name: 'Aurangabad', state: 'Maharashtra' },
+  
+  // Rajasthan
+  { stateCode: '22', districtCode: '001', name: 'Jaipur', state: 'Rajasthan' },
+  { stateCode: '22', districtCode: '002', name: 'Jodhpur', state: 'Rajasthan' },
+  { stateCode: '22', districtCode: '003', name: 'Udaipur', state: 'Rajasthan' },
+  { stateCode: '22', districtCode: '004', name: 'Kota', state: 'Rajasthan' },
+  { stateCode: '22', districtCode: '005', name: 'Ajmer', state: 'Rajasthan' },
+  
+  // Madhya Pradesh
+  { stateCode: '14', districtCode: '001', name: 'Bhopal', state: 'Madhya Pradesh' },
+  { stateCode: '14', districtCode: '002', name: 'Indore', state: 'Madhya Pradesh' },
+  { stateCode: '14', districtCode: '003', name: 'Jabalpur', state: 'Madhya Pradesh' },
+  { stateCode: '14', districtCode: '004', name: 'Gwalior', state: 'Madhya Pradesh' },
+  
+  // West Bengal
+  { stateCode: '28', districtCode: '001', name: 'Kolkata', state: 'West Bengal' },
+  { stateCode: '28', districtCode: '002', name: 'Howrah', state: 'West Bengal' },
+  { stateCode: '28', districtCode: '003', name: 'Darjeeling', state: 'West Bengal' },
+  { stateCode: '28', districtCode: '004', name: 'Jalpaiguri', state: 'West Bengal' },
+  
+  // Tamil Nadu
+  { stateCode: '24', districtCode: '001', name: 'Chennai', state: 'Tamil Nadu' },
+  { stateCode: '24', districtCode: '002', name: 'Coimbatore', state: 'Tamil Nadu' },
+  { stateCode: '24', districtCode: '003', name: 'Madurai', state: 'Tamil Nadu' },
+  { stateCode: '24', districtCode: '004', name: 'Tiruchirappalli', state: 'Tamil Nadu' },
+  
+  // Karnataka
+  { stateCode: '12', districtCode: '001', name: 'Bengaluru', state: 'Karnataka' },
+  { stateCode: '12', districtCode: '002', name: 'Mysuru', state: 'Karnataka' },
+  { stateCode: '12', districtCode: '003', name: 'Mangaluru', state: 'Karnataka' },
+  { stateCode: '12', districtCode: '004', name: 'Hubli', state: 'Karnataka' },
+  
+  // Gujarat
+  { stateCode: '07', districtCode: '001', name: 'Ahmedabad', state: 'Gujarat' },
+  { stateCode: '07', districtCode: '002', name: 'Surat', state: 'Gujarat' },
+  { stateCode: '07', districtCode: '003', name: 'Vadodara', state: 'Gujarat' },
+  { stateCode: '07', districtCode: '004', name: 'Rajkot', state: 'Gujarat' },
+  
+  // Telangana
+  { stateCode: '36', districtCode: '001', name: 'Hyderabad', state: 'Telangana' },
+  { stateCode: '36', districtCode: '002', name: 'Warangal', state: 'Telangana' },
+  { stateCode: '36', districtCode: '003', name: 'Nizamabad', state: 'Telangana' }
+];
+
+const generateMonthlyMetrics = () => {
+  const metrics = [];
+  const months = ['April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'January', 'February', 'March'];
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+
+  for (let i = 5; i >= 0; i--) {
+    const monthIndex = (currentMonth - i + 12) % 12;
+    const year = currentMonth - i < 0 ? currentYear - 1 : currentYear;
     
-    const response = await axios.get(`${apiUrl}${resourceId}`, {
-      params: {
-        'api-key': apiKey,
-        format: 'json',
-        limit: 1000
-      },
-      timeout: 10000
+    metrics.push({
+      month: months[monthIndex],
+      year: year,
+      jobsGenerated: Math.floor(Math.random() * 20000) + 10000,
+      wagesPaid: Math.floor(Math.random() * 60000000) + 40000000,
+      workdays: Math.floor(Math.random() * 150000) + 100000,
+      employmentProvided: Math.floor(Math.random() * 18000) + 12000,
+      completedWorks: Math.floor(Math.random() * 500) + 200,
+      ongoingWorks: Math.floor(Math.random() * 300) + 100
     });
+  }
+
+  return metrics;
+};
+
+const fetchAllDistrictsData = async () => {
+  try {
+    console.log('\n🚀 Starting MGNREGA data fetch...');
+    console.log('================================================\n');
+
+    const apiKey = process.env.MGNREGA_API_KEY;
+
+    if (!apiKey || apiKey === 'your_api_key_here') {
+      console.log('⚠️  No valid API key found. Using mock data...');
+      return await saveMockData();
+    }
+
+    console.log('📡 Attempting to fetch from data.gov.in API...');
     
-    return response.data;
+    try {
+      const response = await axios.get('https://api.data.gov.in/resource/9e86379e-6a46-4f7f-b1e7-5d0f0a4e8c6d', {
+        params: {
+          'api-key': apiKey,
+          format: 'json',
+          limit: 1000
+        },
+        timeout: 30000
+      });
+
+      if (response.data && response.data.records && response.data.records.length > 0) {
+        console.log(`✅ Fetched ${response.data.records.length} records from API`);
+        return await saveApiData(response.data.records);
+      }
+    } catch (apiError) {
+      console.error('❌ API fetch failed:', apiError.message);
+    }
+
+    console.log('⚠️  API fetch failed. Falling back to mock data...');
+    return await saveMockData();
+
   } catch (error) {
-    console.error('Error fetching MGNREGA data:', error.message);
+    console.error('❌ Error in fetchAllDistrictsData:', error);
     throw error;
   }
 };
 
-const transformAPIData = (apiData) => {
+const saveMockData = async () => {
   try {
-    if (!apiData || !apiData.records) {
-      return null;
-    }
+    console.log('💾 Saving mock data to database...');
     
-    const records = apiData.records;
-    const districtMap = {};
-    
-    records.forEach(record => {
-      const districtId = record.district_code || record.lgd_district_code;
-      const districtName = record.district_name;
-      const stateName = record.state_name;
-      
-      if (!districtMap[districtId]) {
-        districtMap[districtId] = {
-          districtId: parseInt(districtId),
-          state: stateName,
-          name: districtName,
-          monthlyMetrics: [],
-          lastUpdated: new Date()
-        };
-      }
-      
-      const metric = {
-        month: record.month || record.financial_year,
-        jobsGenerated: parseInt(record.total_persondays || 0),
-        wagesPaid: parseFloat(record.total_wages_paid || 0),
-        workdays: parseInt(record.total_workdays || 0),
-        employmentProvided: parseInt(record.total_households || 0)
+    let savedCount = 0;
+
+    for (const mockDistrict of MOCK_DISTRICTS) {
+      const districtData = {
+        districtId: `${mockDistrict.stateCode}${mockDistrict.districtCode}`,
+        name: mockDistrict.name,
+        state: mockDistrict.state,
+        stateCode: mockDistrict.stateCode,
+        districtCode: mockDistrict.districtCode,
+        monthlyMetrics: generateMonthlyMetrics(),
+        totalJobCards: Math.floor(Math.random() * 50000) + 20000,
+        activeWorkers: Math.floor(Math.random() * 30000) + 10000,
+        lastUpdated: new Date(),
+        dataSource: 'MOCK'
       };
-      
-      districtMap[districtId].monthlyMetrics.push(metric);
-    });
-    
-    return Object.values(districtMap);
+
+      await District.findOneAndUpdate(
+        { districtId: districtData.districtId },
+        districtData,
+        { upsert: true, new: true }
+      );
+
+      savedCount++;
+    }
+
+    console.log(`✅ Saved ${savedCount} mock districts to database`);
+    return savedCount;
+
   } catch (error) {
-    console.error('Error transforming API data:', error);
-    return null;
+    console.error('❌ Error saving mock data:', error);
+    throw error;
   }
 };
 
-const fetchAndStoreData = async (resourceId = '9ef84268-d588-465a-a308-a864a43d0070') => {
+const saveApiData = async (records) => {
   try {
-    const apiData = await fetchMGNREGAData(resourceId);
-    const transformedData = transformAPIData(apiData);
+    console.log('💾 Saving API data to database...');
     
-    if (transformedData && transformedData.length > 0) {
-      for (const districtData of transformedData) {
-        await District.findOneAndUpdate(
-          { districtId: districtData.districtId },
-          districtData,
-          { upsert: true, new: true }
-        );
-      }
-      return transformedData;
-    }
-    
-    console.log('Using mock data as fallback');
-    return [mockDistrictData];
-  } catch (error) {
-    console.error('Error in fetchAndStoreData:', error.message);
-    return [mockDistrictData];
-  }
-};
+    let savedCount = 0;
 
-const getStatesList = async () => {
-  try {
-    const states = await District.distinct('state');
-    
-    if (states.length > 0) {
-      return states.map((state, index) => ({
-        id: index + 1,
-        name: state
-      }));
+    for (const record of records) {
+      const districtData = {
+        districtId: record.district_code || `${record.state_code}${record.district_code}`,
+        name: record.district_name,
+        state: record.state_name,
+        stateCode: record.state_code,
+        districtCode: record.district_code,
+        monthlyMetrics: [{
+          month: record.month || 'October',
+          year: parseInt(record.year) || 2024,
+          jobsGenerated: parseInt(record.jobs_generated) || 0,
+          wagesPaid: parseFloat(record.wages_paid) || 0,
+          workdays: parseInt(record.workdays) || 0,
+          employmentProvided: parseInt(record.employment_provided) || 0
+        }],
+        lastUpdated: new Date(),
+        dataSource: 'API'
+      };
+
+      await District.findOneAndUpdate(
+        { districtId: districtData.districtId },
+        districtData,
+        { upsert: true, new: true }
+      );
+
+      savedCount++;
     }
-    
-    return [
-      { id: 1, name: 'Uttar Pradesh' },
-      { id: 2, name: 'Bihar' },
-      { id: 3, name: 'Maharashtra' },
-      { id: 4, name: 'Rajasthan' },
-      { id: 5, name: 'Madhya Pradesh' }
-    ];
+
+    console.log(`✅ Saved ${savedCount} districts from API`);
+    return savedCount;
+
   } catch (error) {
-    console.error('Error getting states list:', error);
-    return [];
+    console.error('❌ Error saving API data:', error);
+    throw error;
   }
 };
 
 module.exports = {
-  fetchMGNREGAData,
-  transformAPIData,
-  fetchAndStoreData,
-  getStatesList,
-  mockDistrictData
+  fetchAllDistrictsData
 };
