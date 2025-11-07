@@ -20,6 +20,15 @@ dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.out
+
+# Shell scripts
+*.sh
+
+# Archives
+*.tar
+*.tar.gz
+*.zip
 
 # OS
 .DS_Store
